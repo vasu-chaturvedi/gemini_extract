@@ -8,35 +8,7 @@ import (
 	"time"
 )
 
-func runProcedure(ctx context.Context, db *sql.DB, proc, solID string, procConfig *ExtractionConfig, logCh chan<- ProcLog, summaryCh chan<- SummaryUpdate) {
-	start := time.Now()
-	log.Printf("🔁 Inserting: %s.%s for SOL %s", procConfig.PackageName, proc, solID)
-	err := callProcedure(ctx, db, procConfig.PackageName, proc, solID)
-	end := time.Now()
-
-	plog := ProcLog{
-		SolID:         solID,
-		Procedure:     proc,
-		StartTime:     start,
-		EndTime:       end,
-		ExecutionTime: end.Sub(start),
-	}
-	if err != nil {
-		plog.Status = "FAIL"
-		plog.ErrorDetails = err.Error()
-	} else {
-		plog.Status = "SUCCESS"
-	}
-	logCh <- plog
-
-	summaryCh <- SummaryUpdate{
-		Procedure: proc,
-		StartTime: start,
-		EndTime:   end,
-		Status:    plog.Status,
-	}
-}
-
+// callProcedure executes a single database procedure for a given SOL ID.
 func callProcedure(ctx context.Context, db *sql.DB, pkgName, procName, solID string) error {
 	query := fmt.Sprintf("BEGIN %s.%s(:1); END;", pkgName, procName)
 	start := time.Now()
