@@ -8,60 +8,40 @@ import (
 	"log"
 	"os"
 	"path/filepath"
-	"runtime"
 	"sort"
 	"strings"
-	"sync"
 	"time"
 )
 
-func runExtractionForSol(ctx context.Context, db *sql.DB, solID string, procConfig *ExtractionConfig, templates map[string][]ColumnConfig, logCh chan<- ProcLog, summaryCh chan<- SummaryUpdate) {
-	var wg sync.WaitGroup
-	procCh := make(chan string)
+func runExtraction(ctx context.Context, db *sql.DB, proc, solID string, procConfig *ExtractionConfig, templates map[string][]ColumnConfig, logCh chan<- ProcLog, summaryCh chan<- SummaryUpdate) {
+	start := time.Now()
+	log.Printf("📥 Extracting %s for SOL %s", proc, solID)
+	err := extractData(ctx, db, proc, solID, procConfig, templates)
+	end := time.Now()
 
-	numWorkers := runtime.NumCPU() * 2
-	for i := 0; i < numWorkers; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			for proc := range procCh {
-				start := time.Now()
-				log.Printf("📥 Extracting %s for SOL %s", proc, solID)
-				err := extractData(ctx, db, proc, solID, procConfig, templates)
-				end := time.Now()
+	plog := ProcLog{
+		SolID:         solID,
+		Procedure:     proc,
+		StartTime:     start,
+		EndTime:       end,
+		ExecutionTime: end.Sub(start),
+	}
+	if err != nil {
+		plog.Status = "FAIL"
+		plog.ErrorDetails = err.Error()
+	} else {
+		plog.Status = "SUCCESS"
+	}
+	logCh <- plog
 
-				plog := ProcLog{
-					SolID:         solID,
-					Procedure:     proc,
-					StartTime:     start,
-					EndTime:       end,
-					ExecutionTime: end.Sub(start),
-				}
-				if err != nil {
-					plog.Status = "FAIL"
-					plog.ErrorDetails = err.Error()
-				} else {
-					plog.Status = "SUCCESS"
-				}
-				logCh <- plog
-
-				summaryCh <- SummaryUpdate{
-					Procedure: proc,
-					StartTime: start,
-					EndTime:   end,
-					Status:    plog.Status,
-				}
-
-				log.Printf("✅ Completed %s for SOL %s in %s", proc, solID, end.Sub(start).Round(time.Millisecond))
-			}
-		}()
+	summaryCh <- SummaryUpdate{
+		Procedure: proc,
+		StartTime: start,
+		EndTime:   end,
+		Status:    plog.Status,
 	}
 
-	for _, proc := range procConfig.Procedures {
-		procCh <- proc
-	}
-	close(procCh)
-	wg.Wait()
+	log.Printf("✅ Completed %s for SOL %s in %s", proc, solID, end.Sub(start).Round(time.Millisecond))
 }
 
 func extractData(ctx context.Context, db *sql.DB, procName, solID string, cfg *ExtractionConfig, templates map[string][]ColumnConfig) error {

@@ -70,9 +70,8 @@ func main() {
 	}
 	defer db.Close()
 
-	procCount := len(runCfg.Procedures)
-	db.SetMaxOpenConns(appCfg.Concurrency * procCount)
-	db.SetMaxIdleConns(appCfg.Concurrency * procCount)
+	db.SetMaxOpenConns(appCfg.Concurrency)
+	db.SetMaxIdleConns(appCfg.Concurrency)
 	db.SetConnMaxLifetime(30 * time.Minute)
 
 	sols, err := readSols(appCfg.SolFilePath)
@@ -123,43 +122,33 @@ func main() {
 
 	go writeLog(filepath.Join(appCfg.LogFilePath, LogFile), procLogCh)
 
-	sem := make(chan struct{}, appCfg.Concurrency)
-	var wg sync.WaitGroup
 	ctx := context.Background()
-	totalSols := len(sols)
 	overallStart := time.Now()
-	var mu sync.Mutex
-	completed := 0
 
-	for _, sol := range sols {
-		wg.Add(1)
-		sem <- struct{}{}
-		go func(solID string) {
-			defer wg.Done()
-			defer func() { <-sem }()
-			log.Printf("➡️ Starting SOL %s", solID)
+	for _, proc := range runCfg.Procedures {
+		log.Printf("🚀 Starting procedure %s for all %d SOLs", proc, len(sols))
+		procStart := time.Now()
+		sem := make(chan struct{}, appCfg.Concurrency)
+		var wg sync.WaitGroup
 
-			if mode == "E" {
-				runExtractionForSol(ctx, db, solID, &runCfg, templates, procLogCh, summaryCh)
-			} else if mode == "I" {
-				runProceduresForSol(ctx, db, solID, &runCfg, procLogCh, summaryCh)
-			}
+		for _, sol := range sols {
+			wg.Add(1)
+			sem <- struct{}{}
+			go func(solID string) {
+				defer wg.Done()
+				defer func() { <-sem }()
 
-			mu.Lock()
-			completed++
-			if completed%100 == 0 || completed == totalSols {
-				elapsed := time.Since(overallStart)
-				estimatedTotal := time.Duration(float64(elapsed) / float64(completed) * float64(totalSols))
-				eta := estimatedTotal - elapsed
-				log.Printf("✅ Progress: %d/%d (%.2f%%) | Elapsed: %s | ETA: %s",
-					completed, totalSols, float64(completed)*100/float64(totalSols),
-					elapsed.Round(time.Second), eta.Round(time.Second))
-			}
-			mu.Unlock()
-		}(sol)
+				if mode == "E" {
+					runExtraction(ctx, db, proc, solID, &runCfg, templates, procLogCh, summaryCh)
+				} else if mode == "I" {
+					runProcedure(ctx, db, proc, solID, &runCfg, procLogCh, summaryCh)
+				}
+			}(sol)
+		}
+		wg.Wait()
+		log.Printf("🏁 Finished procedure %s in %s", proc, time.Since(procStart).Round(time.Second))
 	}
 
-	wg.Wait()
 	close(procLogCh)
 	close(summaryCh)
 
@@ -169,5 +158,5 @@ func main() {
 	if mode == "E" {
 		mergeFiles(&runCfg)
 	}
-	log.Printf("🎯 All done! Processed %d SOLs in %s", totalSols, time.Since(overallStart).Round(time.Second))
+	log.Printf("🎯 All done! Processed %d SOLs in %s", len(sols), time.Since(overallStart).Round(time.Second))
 }

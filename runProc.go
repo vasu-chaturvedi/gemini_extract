@@ -8,34 +8,32 @@ import (
 	"time"
 )
 
-func runProceduresForSol(ctx context.Context, db *sql.DB, solID string, procConfig *ExtractionConfig, logCh chan<- ProcLog, summaryCh chan<- SummaryUpdate) {
-	for _, proc := range procConfig.Procedures {
-		start := time.Now()
-		log.Printf("🔁 Inserting: %s.%s for SOL %s", procConfig.PackageName, proc, solID)
-		err := callProcedure(ctx, db, procConfig.PackageName, proc, solID)
-		end := time.Now()
+func runProcedure(ctx context.Context, db *sql.DB, proc, solID string, procConfig *ExtractionConfig, logCh chan<- ProcLog, summaryCh chan<- SummaryUpdate) {
+	start := time.Now()
+	log.Printf("🔁 Inserting: %s.%s for SOL %s", procConfig.PackageName, proc, solID)
+	err := callProcedure(ctx, db, procConfig.PackageName, proc, solID)
+	end := time.Now()
 
-		plog := ProcLog{
-			SolID:         solID,
-			Procedure:     proc,
-			StartTime:     start,
-			EndTime:       end,
-			ExecutionTime: end.Sub(start),
-		}
-		if err != nil {
-			plog.Status = "FAIL"
-			plog.ErrorDetails = err.Error()
-		} else {
-			plog.Status = "SUCCESS"
-		}
-		logCh <- plog
+	plog := ProcLog{
+		SolID:         solID,
+		Procedure:     proc,
+		StartTime:     start,
+		EndTime:       end,
+		ExecutionTime: end.Sub(start),
+	}
+	if err != nil {
+		plog.Status = "FAIL"
+		plog.ErrorDetails = err.Error()
+	} else {
+		plog.Status = "SUCCESS"
+	}
+	logCh <- plog
 
-		summaryCh <- SummaryUpdate{
-			Procedure: proc,
-			StartTime: start,
-			EndTime:   end,
-			Status:    plog.Status,
-		}
+	summaryCh <- SummaryUpdate{
+		Procedure: proc,
+		StartTime: start,
+		EndTime:   end,
+		Status:    plog.Status,
 	}
 }
 
