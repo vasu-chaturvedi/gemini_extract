@@ -26,6 +26,11 @@ type SummaryUpdate struct {
 	Status    string
 }
 
+type WorkItem struct {
+	SolID     string
+	Procedure string
+}
+
 type ColumnConfig struct {
 	Name   string `json:"name"`
 	Length int    `json:"length"`

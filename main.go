@@ -22,11 +22,8 @@ var (
 	mode       string
 )
 
-// WorkItem represents a single unit of work: one procedure for one SOL.
-type WorkItem struct {
-	SolID     string
-	Procedure string
-}
+
+
 
 func init() {
 	flag.StringVar(appCfgFile, "appCfg", "", "Path to the main application configuration file")
@@ -131,16 +128,16 @@ func main() {
 
 	go writeLog(filepath.Join(appCfg.LogFilePath, LogFile), procLogCh)
 
-	totalItems := len(sols) * len(runCfg.Procedures)
-	workQueue := make(chan WorkItem, totalItems)
+	totalItems := int64(len(sols) * len(runCfg.Procedures))
+	workItemQueue := make(chan WorkItem, totalItems)
 
-	log.Printf("📦 Populating work queue with %d items...", totalItems)
-	for _, proc := range runCfg.Procedures {
-		for _, sol := range sols {
-			workQueue <- WorkItem{Procedure: proc, SolID: sol}
+	log.Printf("📦 Populating work item queue with %d items...", totalItems)
+	for _, sol := range sols {
+		for _, proc := range runCfg.Procedures {
+			workItemQueue <- WorkItem{SolID: sol, Procedure: proc}
 		}
 	}
-	close(workQueue)
+	close(workItemQueue)
 
 	var wg sync.WaitGroup
 	overallStart := time.Now()
@@ -151,14 +148,14 @@ func main() {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			for item := range workQueue {
+			for item := range workItemQueue {
 				start := time.Now()
 				var err error
 
 				if mode == "E" {
 					log.Printf("📥 Extracting %s for SOL %s", item.Procedure, item.SolID)
 					stmt := preparedStmts[item.Procedure]
-					err = extractData(ctx, stmt, item.SolID, &runCfg, templates[item.Procedure])
+					err = extractData(ctx, stmt, item.Procedure, item.SolID, &runCfg, templates[item.Procedure])
 				} else if mode == "I" {
 					log.Printf("🔁 Inserting: %s.%s for SOL %s", runCfg.PackageName, item.Procedure, item.SolID)
 					err = callProcedure(ctx, db, runCfg.PackageName, item.Procedure, item.SolID)
@@ -200,7 +197,7 @@ func main() {
 
 				atomic.AddInt64(&completed, 1)
 				currentCompleted := atomic.LoadInt64(&completed)
-				if currentCompleted%100 == 0 || int(currentCompleted) == totalItems {
+				if currentCompleted%100 == 0 || currentCompleted == totalItems {
 					elapsed := time.Since(overallStart)
 					estimatedTotal := time.Duration(float64(elapsed) / float64(currentCompleted) * float64(totalItems))
 					eta := estimatedTotal - elapsed
