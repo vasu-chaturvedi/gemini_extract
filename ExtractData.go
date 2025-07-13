@@ -15,7 +15,7 @@ import (
 	"time"
 )
 
-func runExtractionForSol(ctx context.Context, db *sql.DB, solID string, procConfig *ExtractionConfig, templates map[string][]ColumnConfig, logCh chan<- ProcLog, mu *sync.Mutex, summary map[string]ProcSummary) {
+func runExtractionForSol(ctx context.Context, db *sql.DB, solID string, procConfig *ExtractionConfig, templates map[string][]ColumnConfig, logCh chan<- ProcLog, summaryCh chan<- SummaryUpdate) {
 	var wg sync.WaitGroup
 	procCh := make(chan string)
 
@@ -45,23 +45,13 @@ func runExtractionForSol(ctx context.Context, db *sql.DB, solID string, procConf
 				}
 				logCh <- plog
 
-				mu.Lock()
-				s, exists := summary[proc]
-				if !exists {
-					s = ProcSummary{Procedure: proc, StartTime: start, EndTime: end, Status: plog.Status}
-				} else {
-					if start.Before(s.StartTime) {
-						s.StartTime = start
-					}
-					if end.After(s.EndTime) {
-						s.EndTime = end
-					}
-					if s.Status != "FAIL" && plog.Status == "FAIL" {
-						s.Status = "FAIL"
-					}
+				summaryCh <- SummaryUpdate{
+					Procedure: proc,
+					StartTime: start,
+					EndTime:   end,
+					Status:    plog.Status,
 				}
-				summary[proc] = s
-				mu.Unlock()
+
 				log.Printf("✅ Completed %s for SOL %s in %s", proc, solID, end.Sub(start).Round(time.Millisecond))
 			}
 		}()
@@ -165,5 +155,3 @@ func mergeFiles(cfg *ExtractionConfig) error {
 	}
 	return nil
 }
-
-

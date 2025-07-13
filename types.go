@@ -19,6 +19,13 @@ type ProcSummary struct {
 	Status    string
 }
 
+type SummaryUpdate struct {
+	Procedure string
+	StartTime time.Time
+	EndTime   time.Time
+	Status    string
+}
+
 type ColumnConfig struct {
 	Name   string `json:"name"`
 	Length int    `json:"length"`

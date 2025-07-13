@@ -81,8 +81,31 @@ func main() {
 	}
 
 	procLogCh := make(chan ProcLog, 1000)
-	var summaryMu sync.Mutex
+	summaryCh := make(chan SummaryUpdate, 1000)
 	procSummary := make(map[string]ProcSummary)
+	var summaryWg sync.WaitGroup
+
+	summaryWg.Add(1)
+	go func() {
+		defer summaryWg.Done()
+		for update := range summaryCh {
+			s, exists := procSummary[update.Procedure]
+			if !exists {
+				s = ProcSummary{Procedure: update.Procedure, StartTime: update.StartTime, EndTime: update.EndTime, Status: update.Status}
+			} else {
+				if update.StartTime.Before(s.StartTime) {
+					s.StartTime = update.StartTime
+				}
+				if update.EndTime.After(s.EndTime) {
+					s.EndTime = update.EndTime
+				}
+				if s.Status != "FAIL" && update.Status == "FAIL" {
+					s.Status = "FAIL"
+				}
+			}
+			procSummary[update.Procedure] = s
+		}
+	}()
 
 	if (mode == "I" && !runCfg.RunInsertionParallel) || (mode == "E" && !runCfg.RunExtractionParallel) {
 		log.Println("Running procedures sequentially as parallel execution is disabled")
@@ -117,9 +140,9 @@ func main() {
 			log.Printf("➡️ Starting SOL %s", solID)
 
 			if mode == "E" {
-				runExtractionForSol(ctx, db, solID, &runCfg, templates, procLogCh, &summaryMu, procSummary)
+				runExtractionForSol(ctx, db, solID, &runCfg, templates, procLogCh, summaryCh)
 			} else if mode == "I" {
-				runProceduresForSol(ctx, db, solID, &runCfg, procLogCh, &summaryMu, procSummary)
+				runProceduresForSol(ctx, db, solID, &runCfg, procLogCh, summaryCh)
 			}
 
 			mu.Lock()
@@ -138,6 +161,9 @@ func main() {
 
 	wg.Wait()
 	close(procLogCh)
+	close(summaryCh)
+
+	summaryWg.Wait()
 
 	writeSummary(filepath.Join(appCfg.LogFilePath, LogFileSummary), procSummary)
 	if mode == "E" {

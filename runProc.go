@@ -5,11 +5,10 @@ import (
 	"database/sql"
 	"fmt"
 	"log"
-	"sync"
 	"time"
 )
 
-func runProceduresForSol(ctx context.Context, db *sql.DB, solID string, procConfig *ExtractionConfig, logCh chan<- ProcLog, mu *sync.Mutex, summary map[string]ProcSummary) {
+func runProceduresForSol(ctx context.Context, db *sql.DB, solID string, procConfig *ExtractionConfig, logCh chan<- ProcLog, summaryCh chan<- SummaryUpdate) {
 	for _, proc := range procConfig.Procedures {
 		start := time.Now()
 		log.Printf("🔁 Inserting: %s.%s for SOL %s", procConfig.PackageName, proc, solID)
@@ -31,23 +30,12 @@ func runProceduresForSol(ctx context.Context, db *sql.DB, solID string, procConf
 		}
 		logCh <- plog
 
-		mu.Lock()
-		s, exists := summary[proc]
-		if !exists {
-			s = ProcSummary{Procedure: proc, StartTime: start, EndTime: end, Status: plog.Status}
-		} else {
-			if start.Before(s.StartTime) {
-				s.StartTime = start
-			}
-			if end.After(s.EndTime) {
-				s.EndTime = end
-			}
-			if s.Status != "FAIL" && plog.Status == "FAIL" {
-				s.Status = "FAIL"
-			}
+		summaryCh <- SummaryUpdate{
+			Procedure: proc,
+			StartTime: start,
+			EndTime:   end,
+			Status:    plog.Status,
 		}
-		summary[proc] = s
-		mu.Unlock()
 	}
 }
 
