@@ -7,8 +7,6 @@ import (
 	"path/filepath"
 	"sync"
 	"time"
-
-	tea "github.com/charmbracelet/bubbletea"
 )
 
 func prepareTasks(sols []string, procedures []string) []ProcTask {
@@ -21,7 +19,7 @@ func prepareTasks(sols []string, procedures []string) []ProcTask {
 	return tasks
 }
 
-func startWorkers(db *sql.DB, concurrency int, logFilePath, logFileSummary string, runCfg ExtractionConfig, templates map[string][]ColumnConfig, procLogCh chan<- ProcLog, summaryMu *sync.Mutex, procSummary map[string]ProcSummary, tasks []ProcTask, p *tea.Program, mode string) {
+func startWorkers(db *sql.DB, concurrency int, logFilePath, logFileSummary string, runCfg ExtractionConfig, templates map[string][]ColumnConfig, procLogCh chan<- ProcLog, summaryMu *sync.Mutex, procSummary map[string]ProcSummary, tasks []ProcTask, mode string) {
 	taskCh := make(chan ProcTask, len(tasks))
 	for _, task := range tasks {
 		taskCh <- task
@@ -31,7 +29,6 @@ func startWorkers(db *sql.DB, concurrency int, logFilePath, logFileSummary strin
 	go func() {
 		var wg sync.WaitGroup
 		ctx := context.Background()
-		totalTasks := len(tasks)
 		completedTasks := 0
 
 		for i := 0; i < concurrency; i++ {
@@ -83,7 +80,7 @@ func startWorkers(db *sql.DB, concurrency int, logFilePath, logFileSummary strin
 					summaryMu.Unlock()
 
 					completedTasks++
-					p.Send(progressMsg(float64(completedTasks) / float64(totalTasks)))
+					// p.Send(progressMsg(float64(completedTasks) / float64(totalTasks)))
 				}
 			}()
 		}
@@ -94,6 +91,6 @@ func startWorkers(db *sql.DB, concurrency int, logFilePath, logFileSummary strin
 		if mode == "E" {
 			mergeFiles(&runCfg)
 		}
-		p.Quit()
+		// p.Quit()
 	}()
 }

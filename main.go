@@ -6,47 +6,47 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
-
-	tea "github.com/charmbracelet/bubbletea"
 )
 
 var (
-	appCfgFile = new(string)
-	runCfgFile = new(string)
-	mode       string
+	AppCfgFile = new(string)
+	RunCfgFile = new(string)
+	Mode       string
 )
 
-func init() {
-	flag.StringVar(appCfgFile, "appCfg", "", "Path to the main application configuration file")
-	flag.StringVar(runCfgFile, "runCfg", "", "Path to the extraction configuration file")
-	flag.StringVar(&mode, "mode", "", "Mode of operation: E - Extract, I - Insert")
+func ParseAndValidateFlags() {
+	flag.StringVar(AppCfgFile, "appCfg", "", "Path to the main application configuration file")
+	flag.StringVar(RunCfgFile, "runCfg", "", "Path to the extraction configuration file")
+	flag.StringVar(&Mode, "mode", "", "Mode of operation: E - Extract, I - Insert")
 	flag.Parse()
 
-	if mode != "E" && mode != "I" {
-		log.Fatal("Invalid mode. Valid values are 'E' for Extract and 'I' for Insert.")
+	if Mode != "E" && Mode != "I" {
+		log.Fatalf("Invalid mode. Valid values are 'E' for Extract and 'I' for Insert.")
 	}
-	if *appCfgFile == "" || *runCfgFile == "" {
-		log.Fatal("Both appCfg and runCfg must be specified")
+	if *AppCfgFile == "" || *RunCfgFile == "" {
+		log.Fatalf("Both appCfg and runCfg must be specified")
 	}
-	if _, err := os.Stat(*appCfgFile); os.IsNotExist(err) {
-		log.Fatalf("Application configuration file does not exist: %s", *appCfgFile)
+	if _, err := os.Stat(*AppCfgFile); os.IsNotExist(err) {
+		log.Fatalf("Application configuration file does not exist: %s", *AppCfgFile)
 	}
-	if _, err := os.Stat(*runCfgFile); os.IsNotExist(err) {
-		log.Fatalf("Extraction configuration file does not exist: %s", *runCfgFile)
+	if _, err := os.Stat(*RunCfgFile); os.IsNotExist(err) {
+		log.Fatalf("Extraction configuration file does not exist: %s", *RunCfgFile)
 	}
 }
 
 func main() {
-	appCfg, err := loadMainConfig(*appCfgFile)
+	ParseAndValidateFlags()
+
+	appCfg, err := loadMainConfig(*AppCfgFile)
 	if err != nil {
 		log.Fatalf("Failed to load main config: %v", err)
 	}
-	runCfg, err := loadExtractionConfig(*runCfgFile)
+	runCfg, err := loadExtractionConfig(*RunCfgFile)
 	if err != nil {
 		log.Fatalf("Failed to load extraction config: %v", err)
 	}
 
-	templates, err := loadTemplates(runCfg, mode)
+	templates, err := loadTemplates(runCfg, Mode)
 	if err != nil {
 		log.Fatalf("Failed to load templates: %v", err)
 	}
@@ -66,26 +66,19 @@ func main() {
 	var summaryMu sync.Mutex
 	procSummary := make(map[string]ProcSummary)
 
-	if (mode == "I" && !runCfg.RunInsertionParallel) || (mode == "E" && !runCfg.RunExtractionParallel) {
+	if (Mode == "I" && !runCfg.RunInsertionParallel) || (Mode == "E" && !runCfg.RunExtractionParallel) {
 		log.Println("Running procedures sequentially as parallel execution is disabled")
 		appCfg.Concurrency = 1
 	}
 
-	LogFile, LogFileSummary := determineLogFiles(runCfg, mode)
+	LogFile, LogFileSummary := determineLogFiles(runCfg, Mode)
 
 	go writeLog(filepath.Join(appCfg.LogFilePath, LogFile), procLogCh)
 
 	tasks := prepareTasks(sols, runCfg.Procedures)
 
-	// Bubbletea program
-	p := tea.NewProgram(NewTuiModel())
-
 	// Start workers
-	startWorkers(db, appCfg.Concurrency, appCfg.LogFilePath, LogFileSummary, runCfg, templates, procLogCh, &summaryMu, procSummary, tasks, p, mode)
-
-	if err := p.Start(); err != nil {
-		log.Fatalf("Alas, there's been an error: %v", err)
-	}
+	startWorkers(db, appCfg.Concurrency, appCfg.LogFilePath, LogFileSummary, runCfg, templates, procLogCh, &summaryMu, procSummary, tasks, Mode)
 
 	log.Println("🎯 All done!")
 }
