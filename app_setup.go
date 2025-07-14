@@ -3,7 +3,7 @@ package main
 import (
 	"database/sql"
 	"fmt"
-	
+	_ "github.com/godror/godror"
 	"path/filepath"
 	"time"
 )
