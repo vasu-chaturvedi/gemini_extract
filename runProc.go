@@ -8,25 +8,10 @@ import (
 	"time"
 )
 
-func callProcedureJob(ctx context.Context, db *sql.DB, pkgName, procName, solID string) (ProcLog, error) {
-	start := time.Now()
+func callProcedure(ctx context.Context, db *sql.DB, pkgName, procName, solID string) error {
 	query := fmt.Sprintf("BEGIN %s.%s(:1); END;", pkgName, procName)
+	start := time.Now()
 	_, err := db.ExecContext(ctx, query, solID)
-	end := time.Now()
-	log.Printf("✅ Finished: %s.%s for SOL %s in %s", pkgName, procName, solID, end.Sub(start).Round(time.Millisecond))
-
-	plog := ProcLog{
-		SolID:         solID,
-		Procedure:     procName,
-		StartTime:     start,
-		EndTime:       end,
-		ExecutionTime: end.Sub(start),
-	}
-	if err != nil {
-		plog.Status = "FAIL"
-		plog.ErrorDetails = err.Error()
-	} else {
-		plog.Status = "SUCCESS"
-	}
-	return plog, err
+	log.Printf("✅ Finished: %s.%s for SOL %s in %s", pkgName, procName, solID, time.Since(start).Round(time.Millisecond))
+	return err
 }

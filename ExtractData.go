@@ -9,7 +9,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
-	"runtime"
+	
 	"sort"
 	"strconv"
 	"strings"
@@ -17,64 +17,7 @@ import (
 	"time"
 )
 
-func runExtractionForSol(ctx context.Context, db *sql.DB, solID string, procConfig *ExtractionConfig, templates map[string][]ColumnConfig, logCh chan<- ProcLog, mu *sync.Mutex, summary map[string]ProcSummary) {
-	var wg sync.WaitGroup
-	procCh := make(chan string)
 
-	numWorkers := runtime.NumCPU() * 2
-	for i := 0; i < numWorkers; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			for proc := range procCh {
-				start := time.Now()
-				log.Printf("📥 Extracting %s for SOL %s", proc, solID)
-				err := extractData(ctx, db, proc, solID, procConfig, templates)
-				end := time.Now()
-
-				plog := ProcLog{
-					SolID:         solID,
-					Procedure:     proc,
-					StartTime:     start,
-					EndTime:       end,
-					ExecutionTime: end.Sub(start),
-				}
-				if err != nil {
-					plog.Status = "FAIL"
-					plog.ErrorDetails = err.Error()
-				} else {
-					plog.Status = "SUCCESS"
-				}
-				logCh <- plog
-
-				mu.Lock()
-				s, exists := summary[proc]
-				if !exists {
-					s = ProcSummary{Procedure: proc, StartTime: start, EndTime: end, Status: plog.Status}
-				} else {
-					if start.Before(s.StartTime) {
-						s.StartTime = start
-					}
-					if end.After(s.EndTime) {
-						s.EndTime = end
-					}
-					if s.Status != "FAIL" && plog.Status == "FAIL" {
-						s.Status = "FAIL"
-					}
-				}
-				summary[proc] = s
-				mu.Unlock()
-				log.Printf("✅ Completed %s for SOL %s in %s", proc, solID, end.Sub(start).Round(time.Millisecond))
-			}
-		}()
-	}
-
-	for _, proc := range procConfig.Procedures {
-		procCh <- proc
-	}
-	close(procCh)
-	wg.Wait()
-}
 
 func extractData(ctx context.Context, db *sql.DB, procName, solID string, cfg *ExtractionConfig, templates map[string][]ColumnConfig) error {
 	cols, ok := templates[procName]
@@ -129,42 +72,63 @@ func extractData(ctx context.Context, db *sql.DB, procName, solID string, cfg *E
 }
 
 func mergeFiles(cfg *ExtractionConfig) error {
+	var wg sync.WaitGroup
+	errCh := make(chan error, len(cfg.Procedures))
+
 	for _, proc := range cfg.Procedures {
-		log.Printf("📦 Starting merge for procedure: %s", proc)
+		wg.Add(1)
+		go func(p string) {
+			defer wg.Done()
+			log.Printf("📦 Starting merge for procedure: %s", p)
 
-		pattern := filepath.Join(cfg.SpoolOutputPath, fmt.Sprintf("%s_*.spool", proc))
-		finalFile := filepath.Join(cfg.SpoolOutputPath, fmt.Sprintf("%s.txt", proc))
+			pattern := filepath.Join(cfg.SpoolOutputPath, fmt.Sprintf("%s_*.spool", p))
+			finalFile := filepath.Join(cfg.SpoolOutputPath, fmt.Sprintf("%s.txt", p))
 
-		files, err := filepath.Glob(pattern)
-		if err != nil {
-			return fmt.Errorf("glob failed: %w", err)
-		}
-		sort.Strings(files)
-
-		outFile, err := os.Create(finalFile)
-		if err != nil {
-			return err
-		}
-		defer outFile.Close()
-
-		writer := bufio.NewWriter(outFile)
-		start := time.Now()
-
-		for _, file := range files {
-			in, err := os.Open(file)
+			files, err := filepath.Glob(pattern)
 			if err != nil {
-				return err
+				errCh <- fmt.Errorf("glob failed for %s: %w", p, err)
+				return
 			}
-			scanner := bufio.NewScanner(in)
-			for scanner.Scan() {
-				writer.WriteString(scanner.Text() + "\n")
+			sort.Strings(files)
+
+			outFile, err := os.Create(finalFile)
+			if err != nil {
+				errCh <- err
+				return
 			}
-			in.Close()
-			os.Remove(file)
-		}
-		writer.Flush()
-		log.Printf("📑 Merged %d files into %s in %s", len(files), finalFile, time.Since(start).Round(time.Second))
+			defer outFile.Close()
+
+			writer := bufio.NewWriter(outFile)
+			start := time.Now()
+
+			for _, file := range files {
+				in, err := os.Open(file)
+				if err != nil {
+					errCh <- err
+					return
+				}
+				scanner := bufio.NewScanner(in)
+				for scanner.Scan() {
+					writer.WriteString(scanner.Text() + "\n")
+				}
+				in.Close()
+				os.Remove(file)
+			}
+			writer.Flush()
+			log.Printf("📑 Merged %d files into %s in %s", len(files), finalFile, time.Since(start).Round(time.Second))
+		}(proc)
 	}
+
+	wg.Wait()
+	close(errCh)
+
+	// Check for errors
+	for err := range errCh {
+		if err != nil {
+			return err // Return the first error encountered
+		}
+	}
+
 	return nil
 }
 

@@ -1,10 +1,6 @@
 package main
 
-import (
-	"time"
-)
-
-// Remove duplicate writeLog and writeSummary implementations from this file. Use writeLog.go for these functions.
+import "time"
 
 type ProcLog struct {
 	SolID         string
@@ -16,17 +12,20 @@ type ProcLog struct {
 	ErrorDetails  string
 }
 
-type ProcSummary struct {
-	Procedure  string
-	StartTime  time.Time
-	EndTime    time.Time
-	Status     string
+type ColumnConfig struct {
+	Name   string
+	Length int
+	Align  string
 }
 
-type ColumnConfig struct {
-	Name     string
-	Datatype string
-	Format   string
-	Length   int
-	Align    string
+type ProcSummary struct {
+	Procedure string
+	StartTime time.Time
+	EndTime   time.Time
+	Status    string
+}
+
+type ProcTask struct {
+	SolID     string
+	Procedure string
 }
